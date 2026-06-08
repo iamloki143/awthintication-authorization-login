@@ -286,7 +286,3 @@ This project demonstrates:
 ## Author
 
 Lokesh Kumar
-
-Computer Science Engineering Student
-
-Passionate about Backend Development, Android Development, Cybersecurity, and System Design.
