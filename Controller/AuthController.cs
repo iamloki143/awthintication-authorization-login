@@ -64,7 +64,7 @@ public class AuthController : ControllerBase
     [HttpGet]
     public IActionResult Test()
     {
-        return Ok("DbContext Injected Successfully");
+        return Ok(new { Message = "DbContext Injected Successfully" });
     }
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterDto request)
@@ -74,7 +74,7 @@ public class AuthController : ControllerBase
 
         if (existingUser != null)
         {
-            return BadRequest("Username already exists");
+            return BadRequest(new { Message = "Username already exists" });
         }
 
         var user = new User
@@ -109,11 +109,11 @@ public class AuthController : ControllerBase
 
         if (user == null)
         {
-            return Unauthorized("Invalid Username");
+            return Unauthorized(new { Message = "Invalid Username" });
         }
         if (!user.EmailVerified)
         {
-            return Unauthorized("Please verify your email before logging in");
+            return Unauthorized(new { Message = "Please verify your email before logging in" });
         }
 
         bool isValid = BCrypt.Net.BCrypt.Verify(
@@ -123,7 +123,7 @@ public class AuthController : ControllerBase
 
         if (!isValid)
         {
-            return Unauthorized("Invalid Password");
+            return Unauthorized(new { Message = "Invalid Password" });
         }
         var jwt = GenerateJwtToken(user);
 
@@ -148,13 +148,19 @@ public class AuthController : ControllerBase
     [HttpGet("profile")]
     public IActionResult Profile()
     {
-        return Ok("Welcome to protected profile");
+        return Ok(new
+        {
+            Message = "Welcome to protected profile"
+        });
     }
     [Authorize(Roles = "admin")]
     [HttpGet("admin")]
     public IActionResult AdminOnly()
     {
-        return Ok("Welcome Admin");
+        return Ok(new
+        {
+            Message = "Welcome Admin"
+        });
     }
     [HttpPost("refresh")]
     public IActionResult Refresh(RefreshTokenDto request)
@@ -163,12 +169,12 @@ public class AuthController : ControllerBase
             .FirstOrDefault(rt => rt.Token == request.RefreshToken);
         if (tokenEntity == null || tokenEntity.IsRevoked || tokenEntity.Expiry < DateTime.UtcNow)
         {
-            return Unauthorized("Invalid Refresh Token");
+            return Unauthorized(new { Message = "Invalid Refresh Token" });
         }
         var user = _context.Users.FirstOrDefault(u => u.Id == tokenEntity.UserId);
         if (user == null)
         {
-            return Unauthorized("User not found");
+            return Unauthorized(new { Message = "User not found" });
         }
         var jwt = GenerateJwtToken(user);
         return Ok(new
@@ -183,11 +189,14 @@ public class AuthController : ControllerBase
             .FirstOrDefault(rt => rt.Token == request.RefreshToken);
         if (tokenEntity == null)
         {
-            return Unauthorized("Invalid Refresh Token");
+            return Unauthorized(new { Message = "Invalid Refresh Token" });
         }
         tokenEntity.IsRevoked = true;
         _context.SaveChanges();
-        return Ok("Logged out successfully");
+        return Ok(new
+        {
+            Message = "Logged out successfully"
+        });
     }
     [HttpGet("verify-email")]
     public IActionResult VerifyEmail(string token)
@@ -197,20 +206,23 @@ public class AuthController : ControllerBase
 
         if (emailTokenEntity == null)
         {
-            return Unauthorized("Invalid or expired verification token");
+            return Unauthorized(new { Message = "Invalid or expired verification token" });
         }
 
         var user = _context.Users.FirstOrDefault(u => u.Id == emailTokenEntity.UserId);
         if (user == null)
         {
-            return NotFound("User not found");
+            return NotFound(new { Message = "User not found" });
         }
 
         user.EmailVerified = true;
         _context.EmailVerificationTokens.Remove(emailTokenEntity);
         _context.SaveChanges();
 
-        return Ok("Email verified successfully");
+        return Ok(new
+        {
+            Message = "Email verified successfully"
+        });
     }
     [HttpPost("forgot-password")]
     public IActionResult ForgotPassword(ForgotPasswordDto request)
@@ -218,7 +230,7 @@ public class AuthController : ControllerBase
         var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
         if (user == null)
         {
-            return NotFound("User with given email not found");
+            return NotFound(new { Message = "User with given email not found" });
         }
         var resetToken = GenerateEmailVerificationToken();
         var passwordResetEntity = new PasswordResetToken
@@ -242,21 +254,22 @@ public class AuthController : ControllerBase
 
         if (resetTokenEntity == null)
         {
-            return Unauthorized("Invalid or expired password reset token");
+            return Unauthorized(new { Message = "Invalid or expired password reset token" });
         }
 
         var user = _context.Users.FirstOrDefault(u => u.Id == resetTokenEntity.UserId);
         if (user == null)
         {
-            return Ok(
-                "If the email exists, a reset link has been sent."
-            );
+            return NotFound(new { Message = "User not found" });
         }
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         _context.PasswordResetTokens.Remove(resetTokenEntity);
         _context.SaveChanges();
 
-        return Ok("Password reset successfully");
+        return Ok(new
+        {
+            Message = "Password reset successfully"
+        });
     }
 }
