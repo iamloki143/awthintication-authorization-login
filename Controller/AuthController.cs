@@ -39,14 +39,7 @@ public class AuthController : ControllerBase
         );
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
-    private string GenerateEmailVerificationToken()
-    {
-        var randomNumber = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(randomNumber);
-        return Convert.ToBase64String(randomNumber);
-    }
-    private string GenerateRefreshToken()
+    private string GenerateVerificationToken()
     {
         var randomNumber = new byte[64];
         using var rng = RandomNumberGenerator.Create();
@@ -89,7 +82,7 @@ public class AuthController : ControllerBase
         _context.Users.Add(user);
 
         await _context.SaveChangesAsync();
-        var verificationToken = GenerateEmailVerificationToken();
+        var verificationToken = GenerateVerificationToken();
         var emailTokenEntity = new EmailVerificationToken
         {
             UserId = user.Id,
@@ -127,7 +120,7 @@ public class AuthController : ControllerBase
         }
         var jwt = GenerateJwtToken(user);
 
-        var refreshToken = GenerateRefreshToken();
+        var refreshToken = GenerateVerificationToken();
         var refreshTokenEntity = new RefreshToken
         {
             UserId = user.Id,
@@ -232,7 +225,7 @@ public class AuthController : ControllerBase
         {
             return NotFound(new { Message = "User with given email not found" });
         }
-        var resetToken = GenerateEmailVerificationToken();
+        var resetToken = GenerateVerificationToken();
         var passwordResetEntity = new PasswordResetToken
         {
             UserId = user.Id,
