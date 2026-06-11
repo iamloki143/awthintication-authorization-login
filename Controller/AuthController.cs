@@ -8,6 +8,7 @@ using System.Text;                       // For encoding the secret key used in 
 using Microsoft.IdentityModel.Tokens; // For creating signing credentials for the JWT token
 using Microsoft.AspNetCore.Authorization;  // For adding authorization attributes to controller actions (if needed)
 using System.Security.Cryptography;
+using LoginApi.Services;
 
 namespace LoginApi.Controllers;
 
@@ -41,19 +42,21 @@ public class AuthController : ControllerBase
     }
     private string GenerateVerificationToken()
     {
-        var randomNumber = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(randomNumber);
-        return Convert.ToBase64String(randomNumber);
+         return Guid.NewGuid().ToString("N");
     }
     private readonly AppDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly EmailService _emailService;
 
-    public AuthController(AppDbContext context, IConfiguration configuration)
-    {
-        _context = context;
-        _configuration = configuration;
-    }
+    public AuthController(
+    AppDbContext context,
+    IConfiguration configuration,
+    EmailService emailService)
+{
+    _context = context;
+    _configuration = configuration;
+    _emailService = emailService;
+}
     [HttpGet]
     public IActionResult Test()
     {
@@ -83,6 +86,7 @@ public class AuthController : ControllerBase
 
         await _context.SaveChangesAsync();
         var verificationToken = GenerateVerificationToken();
+        Console.WriteLine($"TOKEN SAVED: {verificationToken}");
         var emailTokenEntity = new EmailVerificationToken
         {
             UserId = user.Id,
@@ -92,7 +96,37 @@ public class AuthController : ControllerBase
         _context.EmailVerificationTokens.Add(emailTokenEntity);
 
         await _context.SaveChangesAsync();
-        return Ok(new { Message = "User Registered", EmailVerificationToken = verificationToken });
+
+        var verifyLink =
+            $"http://192.168.1.15:5062/api/auth/verify-email?token={verificationToken}";
+
+        await _emailService.SendEmailAsync(
+            user.Email,
+            "Verify Your Account",
+            $"""
+            <h2>Welcome {user.Username}</h2>
+
+            <p>Thank you for registering.</p>
+
+            <p>Click the button below to verify your email:</p>
+
+            <a href="{verifyLink}">
+                Verify Email
+            </a>
+            """
+        );
+
+        return Content(
+            """
+            <html>
+                <body style="font-family:Arial;text-align:center;padding-top:50px;">
+                    <h1> Email Verified Successfully</h1>
+                    <p>You can now return to the app and login.</p>
+                </body>
+            </html>
+            """,
+            "text/html"
+        );
     }
     [HttpPost("login")]
     public IActionResult Login(LoginDto request)
@@ -194,6 +228,7 @@ public class AuthController : ControllerBase
     [HttpGet("verify-email")]
     public IActionResult VerifyEmail(string token)
     {
+        Console.WriteLine($"TOKEN RECEIVED: {token}");
         var emailTokenEntity = _context.EmailVerificationTokens
             .FirstOrDefault(evt => evt.Token == token && evt.Expiry > DateTime.UtcNow);
 
@@ -218,7 +253,7 @@ public class AuthController : ControllerBase
         });
     }
     [HttpPost("forgot-password")]
-    public IActionResult ForgotPassword(ForgotPasswordDto request)
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordDto request)
     {
         var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
         if (user == null)
@@ -234,9 +269,24 @@ public class AuthController : ControllerBase
         };
         _context.PasswordResetTokens.Add(passwordResetEntity);
         _context.SaveChanges();
+
+        await _emailService.SendEmailAsync(
+            user.Email,
+            "Reset Your Password",
+            $"""
+            <h2>Password Reset Request</h2>
+
+            <p>Your password reset token is:</p>
+
+            <h3>{resetToken}</h3>
+
+            <p>This token expires in 1 hour.</p>
+            """
+        );
+
         return Ok(new
         {
-            ResetToken = resetToken
+            Message = "Password reset email sent successfully"
         });
     }
     [HttpPost("reset-password")]
