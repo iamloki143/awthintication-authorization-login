@@ -68,10 +68,7 @@ public class AuthController : ControllerBase
         var existingUser = _context.Users
             .FirstOrDefault(u => u.Username == request.Username);
 
-        if (existingUser != null)
-        {
-            return BadRequest(new { Message = "Username already exists" });
-        }
+        if (existingUser != null) return BadRequest(new { Message = "Username already exists" });
 
         var user = new User
         {
@@ -83,10 +80,9 @@ public class AuthController : ControllerBase
         };
 
         _context.Users.Add(user);
+        await _context.SaveChangesAsync(); 
 
-        await _context.SaveChangesAsync();
         var verificationToken = GenerateVerificationToken();
-        Console.WriteLine($"TOKEN SAVED: {verificationToken}");
         var emailTokenEntity = new EmailVerificationToken
         {
             UserId = user.Id,
@@ -95,38 +91,36 @@ public class AuthController : ControllerBase
         };
         _context.EmailVerificationTokens.Add(emailTokenEntity);
 
-        await _context.SaveChangesAsync();
+        var verifyLink = $"http://192.168.1.15:5062/api/auth/verify-email?token={verificationToken}";
 
-        var verifyLink =
-            $"http://192.168.1.15:5062/api/auth/verify-email?token={verificationToken}";
+        try
+        {
+            await _emailService.SendEmailAsync(
+                user.Email,
+                "Verify Your Account",
+                $"""
+                <h2>Welcome {user.Username}!</h2>
+                <p>Thank you for registering.</p>
+                <p>Your verification code is:</p>
+                <h2 style="letter-spacing:4px">{verificationToken}</h2>
+                <p>Enter this code in the app to verify your account.</p>
+                <p>This code expires in 24 hours.</p>
+                """
+            );
 
-        await _emailService.SendEmailAsync(
-            user.Email,
-            "Verify Your Account",
-            $"""
-            <h2>Welcome {user.Username}</h2>
+            await _context.SaveChangesAsync();
 
-            <p>Thank you for registering.</p>
+            return Ok(new { Message = "Registration successful! Please check your email to verify your account." });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending email: {ex.Message}");
 
-            <p>Click the button below to verify your email:</p>
+            _context.Users.Remove(user);
+            await _context.SaveChangesAsync();
 
-            <a href="{verifyLink}">
-                Verify Email
-            </a>
-            """
-        );
-
-        return Content(
-            """
-            <html>
-                <body style="font-family:Arial;text-align:center;padding-top:50px;">
-                    <h1> Email Verified Successfully</h1>
-                    <p>You can now return to the app and login.</p>
-                </body>
-            </html>
-            """,
-            "text/html"
-        );
+            return StatusCode(500, new { Message = "Registration failed: could not send verification email. Please try again." });
+        }
     }
     [HttpPost("login")]
     public IActionResult Login(LoginDto request)
@@ -168,7 +162,10 @@ public class AuthController : ControllerBase
         return Ok(new
         {
             AccessToken = jwt,
-            RefreshToken = refreshToken
+            RefreshToken = refreshToken,
+            Role = user.Role,       
+            Email = user.Email,     
+            Username = user.Username
         });
     }
     [Authorize]
@@ -225,32 +222,24 @@ public class AuthController : ControllerBase
             Message = "Logged out successfully"
         });
     }
-    [HttpGet("verify-email")]
-    public IActionResult VerifyEmail(string token)
+    [HttpPost("verify-email")]
+    public IActionResult VerifyEmail(EmailVerificationDto request)
     {
-        Console.WriteLine($"TOKEN RECEIVED: {token}");
         var emailTokenEntity = _context.EmailVerificationTokens
-            .FirstOrDefault(evt => evt.Token == token && evt.Expiry > DateTime.UtcNow);
+            .FirstOrDefault(evt => evt.Token == request.Token && evt.Expiry > DateTime.UtcNow);
 
         if (emailTokenEntity == null)
-        {
             return Unauthorized(new { Message = "Invalid or expired verification token" });
-        }
 
         var user = _context.Users.FirstOrDefault(u => u.Id == emailTokenEntity.UserId);
         if (user == null)
-        {
             return NotFound(new { Message = "User not found" });
-        }
 
         user.EmailVerified = true;
         _context.EmailVerificationTokens.Remove(emailTokenEntity);
         _context.SaveChanges();
 
-        return Ok(new
-        {
-            Message = "Email verified successfully"
-        });
+        return Ok(new { Message = "Email verified successfully" });
     }
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword(ForgotPasswordDto request)
@@ -314,5 +303,51 @@ public class AuthController : ControllerBase
         {
             Message = "Password reset successfully"
         });
+    }
+    [HttpPost("resend-verification")]
+    public async Task<IActionResult> ResendVerification(ForgotPasswordDto request)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
+        if (user == null)
+            return NotFound(new { Message = "User not found" });
+
+        if (user.EmailVerified)
+            return BadRequest(new { Message = "Email already verified" });
+
+        var oldToken = _context.EmailVerificationTokens
+            .FirstOrDefault(t => t.UserId == user.Id);
+        if (oldToken != null)
+        {
+            _context.EmailVerificationTokens.Remove(oldToken);
+        }
+
+        var verificationToken = GenerateVerificationToken();
+        _context.EmailVerificationTokens.Add(new EmailVerificationToken
+        {
+            UserId = user.Id,
+            Token = verificationToken,
+            Expiry = DateTime.UtcNow.AddDays(1)
+        });
+
+        try
+        {
+            await _emailService.SendEmailAsync(
+                user.Email,
+                "Verify Your Account",
+                $"""
+                <h2>Welcome {user.Username}!</h2>
+                <p>Your new verification code is:</p>
+                <h2>{verificationToken}</h2>
+                <p>This code expires in 24 hours.</p>
+                """
+            );
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "Verification email resent" });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error resending email: {ex.Message}");
+            return StatusCode(500, new { Message = "Failed to send email" });
+        }
     }
 }
