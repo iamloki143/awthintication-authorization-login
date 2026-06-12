@@ -69,6 +69,13 @@ public class AuthController : ControllerBase
             .FirstOrDefault(u => u.Username == request.Username);
 
         if (existingUser != null) return BadRequest(new { Message = "Username already exists" });
+        var existingEmail = _context.Users
+            .FirstOrDefault(u => u.Email == request.Email);
+
+        if (existingEmail != null)
+        {
+            return BadRequest(new { Message = "Email already exists" });
+        }
 
         var user = new User
         {
